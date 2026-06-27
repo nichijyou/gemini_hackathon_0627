@@ -6,10 +6,6 @@ from agent.concierge_agent import generate_concert_itinerary
 
 app = FastAPI(title="Encore Agent API")
 
-# Ensure GEMINI_API_KEY is available (read from os.environ implicitly via our codebase)
-# It is used by the pipeline/vision_extractor.py
-api_key_check = os.environ.get("GEMINI_API_KEY")
-
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Encore Agent API is running."}
