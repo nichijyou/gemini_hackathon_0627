@@ -1,7 +1,8 @@
+import os
 import json
+import base64
 import logging
-from google import genai
-from google.genai import types
+import requests
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -16,15 +17,15 @@ class ConcertInfo(BaseModel):
 
 def extract_tour_info_from_image(image_bytes: bytes, mime_type: str) -> dict:
     """
-    Extracts concert tour information from an image using Gemini 1.5 Pro.
+    Extracts concert tour information from an image using a direct REST call to Gemini 1.5 Pro.
     Expects GEMINI_API_KEY to be set in the environment.
     """
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return {"error": "GEMINI_API_KEY environment variable is not set."}
+
     try:
-        # Initialize the GenAI client.
-        client = genai.Client()
-        
-        # Prepare the image part
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
         
         system_instruction = (
             "You are an expert data extractor. Your task is to analyze the provided concert tour poster "
@@ -32,24 +33,50 @@ def extract_tour_info_from_image(image_bytes: bytes, mime_type: str) -> dict:
             "Ensure the extraction is accurate and comprehensive."
         )
 
-        # Call the Gemini model
-        response = client.models.generate_content(
-            model='gemini-1.5-pro',
-            contents=[image_part, "Extract the concert information from this poster."],
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                response_schema=ConcertInfo,
-                temperature=0.1
-            )
-        )
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={api_key}"
         
-        if response.text:
-            return json.loads(response.text)
-        else:
-            logger.error("No text returned from the model.")
-            return {"error": "No text returned from the model."}
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": system_instruction}]
+            },
+            "contents": [
+                {
+                    "parts": [
+                        {"text": "Extract the concert information from this poster."},
+                        {
+                            "inline_data": {
+                                "mime_type": mime_type,
+                                "data": base64_image
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "response_mime_type": "application/json",
+                "response_schema": ConcertInfo.model_json_schema()
+            }
+        }
+
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(url, headers=headers, json=payload)
+        
+        if response.status_code != 200:
+            logger.error(f"API Error: {response.status_code} - {response.text}")
+            return {"error": f"API Error: {response.status_code} - {response.text}"}
+            
+        data = response.json()
+        
+        # Extract the text response from the API result
+        try:
+            result_text = data["candidates"][0]["content"]["parts"][0]["text"]
+            return json.loads(result_text)
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to parse response format: {data}")
+            return {"error": f"Failed to parse response format. Exception: {e}"}
             
     except Exception as e:
         logger.error(f"Error during extraction: {e}")
         return {"error": str(e)}
+
