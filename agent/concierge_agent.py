@@ -89,7 +89,7 @@ def generate_concert_itinerary(concert_data: dict) -> dict:
     3. A Community Meetup suggestion for other fans.
     """
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
 
     messages = [{"role": "user", "parts": [{"text": prompt}]}]

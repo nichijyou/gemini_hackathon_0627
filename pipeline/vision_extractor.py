@@ -33,7 +33,7 @@ def extract_tour_info_from_image(image_bytes: bytes, mime_type: str) -> dict:
             "Ensure the extraction is accurate and comprehensive."
         )
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
         payload = {
             "system_instruction": {
