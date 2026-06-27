@@ -19,7 +19,8 @@ def extract_tour_info_from_image(image_bytes: bytes, mime_type: str) -> dict:
     Extracts concert tour information from an image using Vertex AI.
     """
     try:
-        vertexai.init(project="gemini-hackathon-500703", location="asia-northeast1")
+        # Let vertexai auto-detect project and location from Cloud Run metadata
+        vertexai.init(location="asia-northeast1")
         
         system_instruction = (
             "You are an expert data extractor. Your task is to analyze the provided concert tour poster "
@@ -28,7 +29,7 @@ def extract_tour_info_from_image(image_bytes: bytes, mime_type: str) -> dict:
         )
 
         model = GenerativeModel(
-            "gemini-1.5-pro",
+            "gemini-1.5-pro-001",
             system_instruction=[system_instruction]
         )
 

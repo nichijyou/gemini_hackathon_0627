@@ -70,11 +70,11 @@ def generate_concert_itinerary(concert_data: dict) -> dict:
     try:
         # Initialize Vertex AI. When deployed on Cloud Run, it will automatically
         # use the service account credentials attached to the Cloud Run instance.
-        vertexai.init(project="gemini-hackathon-500703", location="asia-northeast1")
+        vertexai.init(location="asia-northeast1")
     except Exception as e:
         logger.warning(f"Vertex AI initialization warning (expected if local without ADC): {e}")
 
-    model = GenerativeModel("gemini-1.5-pro", tools=[tools])
+    model = GenerativeModel("gemini-1.5-pro-001", tools=[tools])
     
     prompt = f"""
     You are an elite travel concierge.
