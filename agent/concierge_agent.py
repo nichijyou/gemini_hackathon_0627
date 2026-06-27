@@ -1,8 +1,7 @@
 import os
 import json
 import logging
-import vertexai
-from vertexai.generative_models import GenerativeModel, Tool, FunctionDeclaration, Part
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -34,48 +33,45 @@ def search_hotels(destination_city: str, dates: str) -> dict:
         ]
     }
 
-# Vertex AI Function Declarations
-search_flights_func = FunctionDeclaration(
-    name="search_flights",
-    description="Search for flights departing from Tokyo Haneda to a given destination city.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "destination_city": {"type": "string", "description": "The destination city to fly to."}
-        },
-        "required": ["destination_city"]
+tools_json = [
+    {
+        "functionDeclarations": [
+            {
+                "name": "search_flights",
+                "description": "Search for flights departing from Tokyo Haneda to a given destination city.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "destination_city": {"type": "STRING", "description": "The destination city to fly to."}
+                    },
+                    "required": ["destination_city"]
+                }
+            },
+            {
+                "name": "search_hotels",
+                "description": "Search for hotels in the destination city for the given dates.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "destination_city": {"type": "STRING", "description": "The destination city to stay in."},
+                        "dates": {"type": "STRING", "description": "The dates of the stay (e.g., 'Oct 15-18')."}
+                    },
+                    "required": ["destination_city", "dates"]
+                }
+            }
+        ]
     }
-)
-
-search_hotels_func = FunctionDeclaration(
-    name="search_hotels",
-    description="Search for hotels in the destination city for the given dates.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "destination_city": {"type": "string", "description": "The destination city to stay in."},
-            "dates": {"type": "string", "description": "The dates of the stay (e.g., 'Oct 15-18')."}
-        },
-        "required": ["destination_city", "dates"]
-    }
-)
-
-tools = Tool(function_declarations=[search_flights_func, search_hotels_func])
+]
 
 def generate_concert_itinerary(concert_data: dict) -> dict:
     """
     Takes extracted concert data, uses tools to gather travel details,
     and synthesizes a complete travel concierge plan.
     """
-    try:
-        # Initialize Vertex AI. When deployed on Cloud Run, it will automatically
-        # use the service account credentials attached to the Cloud Run instance.
-        vertexai.init()
-    except Exception as e:
-        logger.warning(f"Vertex AI initialization warning (expected if local without ADC): {e}")
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return {"error": "GEMINI_API_KEY environment variable is not set."}
 
-    model = GenerativeModel("gemini-1.5-pro", tools=[tools])
-    
     prompt = f"""
     You are an elite travel concierge.
     A user wants to attend this concert tour. Here is the extracted data:
@@ -92,36 +88,57 @@ def generate_concert_itinerary(concert_data: dict) -> dict:
     2. An estimated Budget breakdown.
     3. A Community Meetup suggestion for other fans.
     """
-    
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+
+    messages = [{"role": "user", "parts": [{"text": prompt}]}]
+    payload = {
+        "contents": messages,
+        "tools": tools_json,
+        "generationConfig": {"temperature": 0.2}
+    }
+
     try:
-        chat = model.start_chat()
-        response = chat.send_message(prompt)
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code != 200:
+            return {"error": f"API Error: {response.status_code} - {response.text}"}
         
-        # Orchestrator Loop for Tool execution
-        while response.function_calls:
-            tool_responses = []
-            for function_call in response.function_calls:
-                result = {}
-                if function_call.name == "search_flights":
-                    dest = function_call.args.get("destination_city", "Unknown")
-                    result = search_flights(dest)
-                elif function_call.name == "search_hotels":
-                    dest = function_call.args.get("destination_city", "Unknown")
-                    dates = function_call.args.get("dates", "Unknown dates")
-                    result = search_hotels(dest, dates)
+        data = response.json()
+        candidate = data.get("candidates", [])[0]
+        parts = candidate.get("content", {}).get("parts", [])
+        
+        function_calls = [p["functionCall"] for p in parts if "functionCall" in p]
+        
+        if function_calls:
+            # Append model's response to messages
+            messages.append(candidate["content"])
+            
+            tool_parts = []
+            for fc in function_calls:
+                name = fc["name"]
+                args = fc.get("args", {})
+                if name == "search_flights":
+                    res = search_flights(args.get("destination_city", "Unknown"))
+                elif name == "search_hotels":
+                    res = search_hotels(args.get("destination_city", "Unknown"), args.get("dates", "Unknown"))
                 else:
-                    result = {"error": "Unknown function"}
+                    res = {"error": "Unknown function"}
+                    
+                tool_parts.append({"functionResponse": {"name": name, "response": res}})
                 
-                tool_responses.append(Part.from_function_response(
-                    name=function_call.name,
-                    response={"content": result}
-                ))
+            messages.append({"role": "function", "parts": tool_parts})
+            payload["contents"] = messages
             
-            # Send the tool results back to the model
-            response = chat.send_message(tool_responses)
+            response2 = requests.post(url, headers=headers, json=payload)
+            if response2.status_code != 200:
+                return {"error": f"API Error 2: {response2.status_code} - {response2.text}"}
+                
+            data2 = response2.json()
+            return {"plan": data2["candidates"][0]["content"]["parts"][0]["text"]}
+        else:
+            return {"plan": parts[0]["text"]}
             
-        return {"plan": response.text}
-        
     except Exception as e:
         logger.error(f"Error during orchestration: {e}")
         return {"error": str(e)}
