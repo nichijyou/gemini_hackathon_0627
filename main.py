@@ -10,9 +10,12 @@ app = FastAPI(title="Encore Agent API")
 # It is used by the pipeline/vision_extractor.py
 api_key_check = os.environ.get("GEMINI_API_KEY")
 
-@app.get("/")
+from fastapi.responses import HTMLResponse
+
+@app.get("/", response_class=HTMLResponse)
 def read_root():
-    return {"status": "ok", "message": "Encore Agent API is running."}
+    with open("index.html", "r", encoding="utf-8") as f:
+        return f.read()
 
 @app.post("/extract")
 async def extract_poster_info(file: UploadFile = File(...)):
